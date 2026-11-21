@@ -11,11 +11,13 @@
 .
 ├── frontend/                 Vue 3 + Vite + TypeScript 前端
 │   ├── src/views/WorkbenchView.vue|tsx  全部模块共享工作台
+│   ├── src/views/IncidentAggregationView.vue  质量事件数据聚合（根因矩阵/派工/结论）
 │   ├── src/data/modules.ts              18个业务模块配置
 │   ├── src/api/              统一请求封装
 │   └── vite.config.ts        dev server 配置（open: false）
 ├── backend/                  FastAPI（Python） 后端
 │   ├── app/routers/resource.py  通用查询/导出/登记/动作接口
+│   ├── app/routers/incident_agg.py  根因矩阵、派工、证据、结论、修复清单接口
 │   ├── app/services/<key>.py    每个模块独立领域逻辑
 │   ├── app/services/base.py     共享服务骨架
 │   └── app/store.py          内存数据仓库与示例数据
@@ -53,6 +55,7 @@ npm run dev
 | 质量规则定义 | `dq_rule_def` | 质量规则 | 规则编号、规则名称、目标表名 |
 | 巡检任务管理 | `dq_check_run` | 巡检任务 | 任务编号、关联规则集、数据范围 |
 | 质量事件管理 | `dq_incident` | 质量事件 | 事件编号、关联规则、触发时间 |
+| 质量事件数据聚合 | `dq_incident_agg` | 每日根因矩阵 | 报告日期、事件总量、根因待确认项 |
 | 元数据采集器 | `metadata_crawler` | 采集器配置 | 采集器编号、数据源类型、连接地址 |
 | 数据表目录 | `table_catalog` | 表目录 | 表编号、表名称、所属库名 |
 | 字段画像分析 | `column_profile` | 字段画像 | 画像编号、关联表名、字段名称 |
@@ -76,6 +79,27 @@ npm run dev
   `frontend/src/domain/<模块>.ts`，用于承载真实业务差异并维持36题位容量。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+
+## 质量事件数据聚合
+
+`dq_incident` 的事件摘要按“关联规则”累加，同一条异常被多个证据组跟进时会被重复计数，
+也看不到调查结论里的根因。`dq_incident_agg` 补上这块：
+
+- **每日根因矩阵**：事件为行、证据组（采集侧/转换侧）为列，列出各组待查对象、接手人和证据。
+  接口 `GET /api/dq_incident_agg/matrix`。
+- **两种口径分开核算**：`事件总量` 按事件编号去重；`根因待确认项` 按“事件+证据组”计调查工作量，
+  不并入事件总量。接口 `GET /api/dq_incident_agg/metrics`。
+- **日报派工**：`POST /api/dq_incident_agg/dispatch`，按矩阵给每个待核查单元格落派工单，
+  同一天重复执行幂等；返回 `单事件计数` 供核对（一条事件两张派工单仍只计 1）。
+- **调查证据**：`POST /api/dq_incident_agg/evidence` 登记各组实际取得的证据；
+  `GET /api/dq_incident_agg/tasks?group=采集侧` 只看该组发出的任务和接手人本人取得的证据。
+- **调查结论**：`POST /api/dq_incident_agg/conclusions`。同一事件同一证据组并发提交只计一次；
+  `更正=True` 生成新版本，旧结论保留并在新结论上快照 `更正前根因/更正前归因依据`。
+- **关联根因**：`POST /api/dq_incident_agg/related-root-causes`，两组都确认后互相挂上对方根因。
+- **修复清单**：`GET /api/dq_incident_agg/remediation`，只有已确认根因的事件进入修复项，
+  根因待确认的列在 `未纳入修复`；`DqReportService.aggregate_quality_report` 也会带出这份清单。
+
+前端入口：侧边栏「质量事件数据聚合」（`/dq_incident_agg`）。
 
 领域：数据工程
 子方向：数仓与数据湖

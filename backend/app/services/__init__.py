@@ -5,6 +5,7 @@ from app.services.base import BaseModuleService
 from app.services.dq_rule_def import DqRuleDefService
 from app.services.dq_check_run import DqCheckRunService
 from app.services.dq_incident import DqIncidentService
+from app.services.dq_incident_agg import DqIncidentAggService
 from app.services.metadata_crawler import MetadataCrawlerService
 from app.services.table_catalog import TableCatalogService
 from app.services.column_profile import ColumnProfileService
@@ -25,6 +26,7 @@ SERVICES: dict[str, BaseModuleService] = {
     "dq_rule_def": DqRuleDefService(),
     "dq_check_run": DqCheckRunService(),
     "dq_incident": DqIncidentService(),
+    "dq_incident_agg": DqIncidentAggService(),
     "metadata_crawler": MetadataCrawlerService(),
     "table_catalog": TableCatalogService(),
     "column_profile": ColumnProfileService(),

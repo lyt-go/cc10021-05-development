@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.dq_incident_agg import DqIncidentAggService
 from app.store import store
 
 
@@ -30,20 +31,26 @@ class DqReportService(BaseModuleService):
 
         查询巡检执行记录、质量事件、评分卡和趋势数据，
         聚合各维度指标计算结果，写入质量报告记录并导出趋势快照。
+        质量事件按事件编号去重计数，并附上调查结论驱动的修复清单；
+        根因待确认项与事件总量分开列示。
         """
+        agg = DqIncidentAggService()
+
         # 查询各模块数据
-        incident_rows = store.rows("dq_incident")
         check_rows = store.rows("dq_check_run")
         scorecard_rows = store.rows("dq_scorecard")
         trend_rows = store.rows("dq_trend")
+        metrics = agg.aggregate_incident_metrics()
+        remediation = agg.build_remediation_list(metrics["报告日期"])
 
         # 聚合巡检结果
         total_checks = len(check_rows)
         passed_checks = sum(1 for r in check_rows if not r.get("abnormal"))
         failed_checks = total_checks - passed_checks
 
-        # 聚合质量事件
-        total_incidents = len(incident_rows)
+        # 聚合质量事件：同一条异常只按事件编号计一次
+        incident_rows = store.rows("dq_incident")
+        total_incidents = metrics["事件总量"]
         open_incidents = sum(1 for r in incident_rows if r.get("status") in ("待确认", "调查中"))
         resolved_incidents = sum(1 for r in incident_rows if r.get("status") in ("已修复", "已关闭"))
 
@@ -75,6 +82,9 @@ class DqReportService(BaseModuleService):
             "status": "已完成",
             "pending": False,
             "abnormal": failed_checks > passed_checks,
+            "事件总量": str(total_incidents),
+            "根因待确认项": str(metrics["根因待确认项"]),
+            "修复项数": str(remediation["修复项数"]),
         }
         rows.append(report)
 
@@ -87,9 +97,14 @@ class DqReportService(BaseModuleService):
             "巡检总次数": total_checks,
             "巡检通过率": f"{passed_checks / total_checks * 100:.1f}%" if total_checks > 0 else "N/A",
             "质量事件总数": total_incidents,
+            "事件记录数": metrics["事件记录数"],
+            "根因待确认项": metrics["根因待确认项"],
+            "已确认根因项": metrics["已确认根因项"],
             "未处理事件": open_incidents,
             "已修复事件": resolved_incidents,
             "修复率": f"{resolved_incidents / total_incidents * 100:.1f}%" if total_incidents > 0 else "N/A",
+            "修复清单": remediation["修复清单"],
+            "未纳入修复": remediation["未纳入修复"],
             "平均综合质量": round(avg_quality, 2),
             "维度得分": dim_scores,
             "生成时间": report["生成时间"],
